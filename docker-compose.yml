@@ -1,0 +1,200 @@
+version: '3'
+services:
+  strapi:
+    container_name: strapi
+    image: arthurescriou/strapi:1.0.0
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_CLIENT: ${DATABASE_CLIENT}
+      DATABASE_HOST: strapiDB
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USERNAME: ${DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET}
+      APP_KEYS: ${APP_KEYS}
+      NODE_ENV: ${NODE_ENV}
+      PORT: 8080
+    ports:
+      - '8080:8080'
+    networks:
+      - strapi
+    depends_on:
+      - strapiDB
+
+  strapiDB:
+    container_name: strapiDB
+    restart: unless-stopped
+    env_file: .env
+    image: arthurescriou/strapi-pg:1.0.0
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+
+    ports:
+      - '5432:5432'
+    networks:
+      - strapi
+
+  zookeeper:
+    image: zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - '2181:2181'
+    expose:
+      - '2181'
+    networks:
+      - strapi
+      
+  kafka:
+    image: wurstmeister/kafka:latest
+    container_name: kafka
+    restart: always
+    ports:
+      - '9092:9092'
+      - '9093:9093'
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: INSIDE://localhost:9093,OUTSIDE://kafka:9092,
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_DELETE_TOPIC_ENABLE: 'true'
+      KAFKA_ADVERTISED_PORT: 9092
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKAJS_NO_PARTITIONER_WARNING: '1'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_LISTENERS: INSIDE://0.0.0.0:9093,OUTSIDE://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_NO_LISTENER_AUTHENTICATION_PLAINTEXT: 'true'
+      KAFKA_NO_LISTENER_AUTHENTICATION_SSL: 'true'
+      KAFKA_BROKER_ID: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_LOG_DIRS: /kafka/logs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - zookeeper
+    networks: 
+      - strapi
+    
+  product-producer:
+    image: arthurescriou/product-producer:1.0.0
+    container_name: product-producer
+    environment:
+      BROKER_1: kafka:9092
+      BROKER_2: kafka:9092
+      BROKER_3: kafka:9092
+      STRAPI_TOKEN: '27df9a1ed1f696cc4c292c9ad94a7b6d3c976394e954889f7eb2159c3198975ad053d55ebd0633e0fc2d5c7424416433c320679e9654fbd2d617b418d92a0f268a0b9994a9d16fefcc0c57bd7fac281a4c8aa7b940d06f63ee2b61cac3c7baf5ee01bbf4550193d8e3c3a4e5944d8291edf96ab7bb192e96edbe0ea0ef271746'
+      STRAPI_URL: http://strapi:1337
+      TOPIC: product
+      ERROR_TOPIC: errors
+      FILE_NAME: /products.txt
+    volumes:
+        - ./product-producer/products.csv:/products.csv  
+    depends_on:
+        - kafka
+        - strapi
+    networks:
+        - strapi
+
+  product-consumer:
+    image: arthurescriou/product-consumer:1.0.3
+    container_name: product-consumer
+    environment:
+      BROKER_1: kafka:9092
+      BROKER_2: kafka:9092
+      BROKER_3: kafka:9092
+      STRAPI_URL: http://strapi:8080
+      STRAPI_TOKEN: '27df9a1ed1f696cc4c292c9ad94a7b6d3c976394e954889f7eb2159c3198975ad053d55ebd0633e0fc2d5c7424416433c320679e9654fbd2d617b418d92a0f268a0b9994a9d16fefcc0c57bd7fac281a4c8aa7b940d06f63ee2b61cac3c7baf5ee01bbf4550193d8e3c3a4e5944d8291edf96ab7bb192e96edbe0ea0ef271746'
+      TOPIC: product
+      BEGINNING: 'false' 
+      ERROR_TOPIC: errors
+    depends_on:
+          - kafka
+          - strapi
+    networks:
+          - strapi
+
+
+  stock-producer:
+    image: arthurescriou/stock-producer:1.0.1
+    container_name: stock-producer
+    environment:
+        BROKER_1: kafka:9092
+        BROKER_2: kafka:9092
+        BROKER_3: kafka:9092
+        TOPIC: stock
+        FILE_NAME: /dsfdfd.csv
+    networks:
+        - strapi
+    depends_on:
+        - kafka
+        - strapi
+
+    volumes:
+          - ./stock-producer/stocks.csv:/dsfdfd.csv
+
+  stock-consumer:
+    image: arthurescriou/stock-consumer:1.0.0
+    container_name: stock-consumer
+    environment: 
+        BROKER_1: kafka:9092
+        BROKER_2: kafka:9092
+        BROKER_3: kafka:9092
+        STRAPI_URL: http://strapi:8080
+        STRAPI_TOKEN: '27df9a1ed1f696cc4c292c9ad94a7b6d3c976394e954889f7eb2159c3198975ad053d55ebd0633e0fc2d5c7424416433c320679e9654fbd2d617b418d92a0f268a0b9994a9d16fefcc0c57bd7fac281a4c8aa7b940d06f63ee2b61cac3c7baf5ee01bbf4550193d8e3c3a4e5944d8291edf96ab7bb192e96edbe0ea0ef271746'
+        TOPIC: stock
+        BEGINNING: false
+        ERROR_TOPIC: errors
+    networks:
+        - strapi
+    depends_on:
+        - kafka
+        - strapi
+  event-producer:
+      image: arthurescriou/event-producer:1.0.3
+      container_name: event-producer   
+      environment:
+          BROKER_1: kafka:9092
+          BROKER_2: kafka:9092
+          BROKER_3: kafka:9092
+          TOPIC: event
+          FILE_NAME: /events.csv 
+          ERROR_TOPIC: errors
+      volumes:
+          - ./event-producer/events.csv:/events.csv  
+      
+      networks:
+          - strapi
+
+      depends_on:
+          - kafka
+          - strapi
+
+  event-consumer:
+      image: arthurescriou/event-consumer:1.0.0
+      container_name: event-consumer
+      environment:
+          BROKER_1: kafka:9092
+          BROKER_2: kafka:9092
+          BROKER_3: kafka:9092
+          STRAPI_URL: http://strapi:8080
+          STRAPI_TOKEN: '27df9a1ed1f696cc4c292c9ad94a7b6d3c976394e954889f7eb2159c3198975ad053d55ebd0633e0fc2d5c7424416433c320679e9654fbd2d617b418d92a0f268a0b9994a9d16fefcc0c57bd7fac281a4c8aa7b940d06f63ee2b61cac3c7baf5ee01bbf4550193d8e3c3a4e5944d8291edf96ab7bb192e96edbe0ea0ef271746'
+          TOPIC: event
+          BEGINNING: false
+          ERROR_TOPIC: errors
+    
+      networks:
+          - strapi
+
+      depends_on:
+          - kafka
+          - strapi
+
+networks:
+  strapi:
+    name: strapi
+    driver: bridge
